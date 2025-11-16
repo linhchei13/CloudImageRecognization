@@ -1,221 +1,167 @@
-"""
-FastAPI Backend for Hybrid Cloud Image Recognition
-Replaces Flask appTier.py from OpenStack_AWS_Project
-Maintains exact same logic and flow as original implementation
-"""
-
+# WebTier.py
 import os
-import base64
 import uuid
-import boto3
-import logging
-from pathlib import Path
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import PlainTextResponse
-from dotenv import load_dotenv
+import time
+import json
 from datetime import datetime
+from flask import Flask, request, jsonify
+import boto3
+from botocore.exceptions import ClientError
 
-# Load environment variables
-load_dotenv()
+# Config from env
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+S3_BUCKET = os.getenv("S3_BUCKET")
+INPUT_QUEUE_URL = os.getenv("INPUT_QUEUE_URL")
+RESULT_S3_PREFIX = os.getenv("RESULT_S3_PREFIX", "results/")
+UPLOAD_S3_PREFIX = os.getenv("UPLOAD_S3_PREFIX", "requests/")
+RESULT_TIMEOUT = int(os.getenv("RESULT_TIMEOUT", "30"))  # seconds
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+if not S3_BUCKET or not INPUT_QUEUE_URL:
+    raise RuntimeError("Missing required env vars: S3_BUCKET and INPUT_QUEUE_URL")
 
-# AWS Configuration (from original appTier.py)
-AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '')
+# boto3 session (will use IAM role if available or env creds)
+session = boto3.session.Session(region_name=AWS_REGION)
+s3 = session.client("s3")
+sqs = session.client("sqs")
 
-INPUT_QUEUE_URL = os.getenv('INPUT_QUEUE_URL', 'https://sqs.us-east-1.amazonaws.com/637902131290/InputQueue')
-INPUT_QUEUE_NAME = os.getenv('INPUT_QUEUE_NAME', 'InputQueue')
-OUTPUT_QUEUE_URL = os.getenv('OUTPUT_QUEUE_URL', 'https://sqs.us-east-1.amazonaws.com/637902131290/OutputQueue')
+app = Flask(__name__)
 
-# S3 Configuration (from original recognition.py)
-INPUT_BUCKET = os.getenv('INPUT_BUCKET', 'inputbucket117')
-OUTPUT_BUCKET = os.getenv('OUTPUT_BUCKET', 'outputbucket117')
+def upload_file_to_s3(fileobj, bucket, key):
+    try:
+        fileobj.seek(0)
+        s3.upload_fileobj(fileobj, bucket, key)
+        return True
+    except ClientError:
+        app.logger.exception("S3 upload failed")
+        return False
 
-# Paths
-REQUESTS_FILES_PATH = os.getenv('REQUESTS_FILES_PATH', 'requests_files')
-CLASSIFIER_PATH = os.getenv('CLASSIFIER_PATH', '/home/ubuntu/classifier')
+def s3_object_exists(bucket, key):
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+        return True
+    except ClientError:
+        return False
 
-# Create requests_files directory if it doesn't exist
-Path(REQUESTS_FILES_PATH).mkdir(exist_ok=True)
-
-# Initialize FastAPI app
-app = FastAPI(
-    title="Hybrid Cloud Image Recognition API",
-    description="FastAPI replacement for Flask appTier.py",
-    version="1.0.0"
-)
-
-# Initialize AWS clients (from original appTier.py)
-session = boto3.session.Session()
-sqs_res = session.resource(
-    "sqs",
-    region_name=AWS_REGION,
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-)
-
-sqs_client = boto3.client(
-    "sqs",
-    region_name=AWS_REGION,
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-)
-
-s3 = boto3.resource(
-    "s3",
-    region_name=AWS_REGION,
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-)
-
-input_bucket = s3.Bucket(INPUT_BUCKET)
-output_bucket = s3.Bucket(OUTPUT_BUCKET)
-
-MESSAGE_ATTRIBUTES = ['ImageName', 'UID']
-
-
-@app.post("/")
-async def read_image_file(image_file: UploadFile = File(...)):
-    """
-    Main endpoint - matches original Flask appTier.py POST / endpoint
+@app.route("/health", methods=["GET"])
+def health_check():
     
-    Flow (from original code):
-    1. Receive image file
-    2. Save temporarily
-    3. Encode to Base64
-    4. Send to SQS Input Queue with ImageName and UID attributes
-    5. Wait for result file (created by outputQueueListener.py)
-    6. Return result
+    # Checks Web Tier status and AWS connectivity.
     
-    Args:
-        image_file: Image file uploaded by user
-        
-    Returns:
-        Classification result as plain text
-    """
+    health_status = {
+        "web_tier": "OK",
+        "aws_sqs": "FAIL",
+        "aws_s3": "FAIL",
+        "region": AWS_REGION,
+        "bucket": S3_BUCKET
+    }
     
     try:
-        # Check if file has filename (from original appTier.py line 27)
-        if image_file.filename == '':
-            raise HTTPException(status_code=400, detail="No filename provided")
+        # Check SQS connection by getting queue URL
+        sqs.get_queue_url(QueueName=INPUT_QUEUE_URL.split('/')[-1])
+        health_status["aws_sqs"] = "OK"
+    except Exception:
+        pass
         
-        # Read file content
-        content = await image_file.read()
+    try:
+        # Check S3 connection by getting bucket info
+        s3.head_bucket(Bucket=S3_BUCKET)
+        health_status["aws_s3"] = "OK"
+    except Exception:
+        pass
+
+    # Return 503 if any critical service fails
+    if health_status["aws_sqs"] == "FAIL" or health_status["aws_s3"] == "FAIL":
+        return jsonify(health_status), 503
         
-        # Save temporarily (from original appTier.py line 28)
-        temp_path = os.path.join(REQUESTS_FILES_PATH, image_file.filename)
-        with open(temp_path, 'wb') as f:
-            f.write(content)
-        
-        # Encode to Base64 (from original appTier.py line 30)
-        encoded_string = base64.b64encode(content).decode('utf-8')
-        
-        # Generate UUID (from original appTier.py line 33)
-        msg_uuid = str(uuid.uuid4())
-        
-        # Get input queue (from original appTier.py line 24)
-        input_q = sqs_res.get_queue_by_name(QueueName=INPUT_QUEUE_NAME)
-        
-        # Send message to SQS (from original appTier.py line 37-46)
-        try:
-            input_q.send_message(
-                MessageBody=encoded_string,
-                MessageAttributes={
-                    'ImageName': {
-                        'StringValue': image_file.filename,
-                        'DataType': 'String'
-                    },
-                    'UID': {
-                        'StringValue': msg_uuid,
-                        'DataType': 'String'
-                    }
-                }
-            )
-            logger.info(f"Message sent for {image_file.filename} at {datetime.now()}")
-        
-        except Exception as e:
-            logger.error(f"Exception while sending message to SQS: {image_file.filename} ::: {repr(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to send message to SQS: {str(e)}")
-        
-        # Clean up temporary file (from original appTier.py line 53)
-        os.system(f"rm {temp_path}")
-        
-        # Wait for result (from original appTier.py line 57-64)
-        # This polls for a file created by outputQueueListener.py
-        res = None
-        max_attempts = 300  # 5 minutes with 1 second intervals
-        attempts = 0
-        
-        while res is None and attempts < max_attempts:
-            result_file_path = os.path.join(REQUESTS_FILES_PATH, f"{msg_uuid}.txt")
-            
-            if os.path.exists(result_file_path):
-                with open(result_file_path) as file:
-                    res = file.read()
-                    logger.info(f"Result for {image_file.filename}: {res}")
-                
-                if res:
-                    # Clean up result file (from original appTier.py line 63)
-                    os.system(f"rm {result_file_path}")
-                    return PlainTextResponse(res)
-            
-            # Wait before next check
-            import asyncio
-            await asyncio.sleep(1)
-            attempts += 1
-        
-        # Timeout
-        logger.error(f"Timeout waiting for result for {image_file.filename}")
-        raise HTTPException(status_code=504, detail="Processing timeout - no result received")
+    return jsonify(health_status), 200
+
+@app.route("/", methods=["POST"])
+def submit_image():
+    if 'image_file' not in request.files:
+        return jsonify({"error": "no image_file provided"}), 400
+
+    upload_file = request.files['image_file']
+    if upload_file.filename == "":
+        return jsonify({"error": "empty filename"}), 400
+
+    uid = str(uuid.uuid4())
+    s3_key = f"{UPLOAD_S3_PREFIX}{uid}/{upload_file.filename}"
+
+    ok = upload_file_to_s3(upload_file.stream, S3_BUCKET, s3_key)
+    if not ok:
+        return jsonify({"error": "s3 upload failed"}), 500
+
+    message_payload = {
+        "uid": uid,
+        "s3_bucket": S3_BUCKET,
+        "s3_key": s3_key,
+        "filename": upload_file.filename,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+    try:
+        sqs.send_message(
+            QueueUrl=INPUT_QUEUE_URL,
+            MessageBody=json.dumps(message_payload),
+            MessageAttributes={
+                "UID": {"StringValue": uid, "DataType": "String"},
+                "Filename": {"StringValue": upload_file.filename, "DataType": "String"}
+            }
+        )
+    except ClientError:
+        app.logger.exception("Failed to send message to SQS")
+        return jsonify({"error": "sqs send failed"}), 500
+
+    # Poll S3 for result (simple approach)
+    result_key = f"{RESULT_S3_PREFIX}{uid}.json"
+    poll_interval = 1.0
+    deadline = time.time() + RESULT_TIMEOUT
+    while time.time() < deadline:
+        if s3_object_exists(S3_BUCKET, result_key):
+            res_obj = s3.get_object(Bucket=S3_BUCKET, Key=result_key)
+            body = res_obj['Body'].read().decode('utf-8')
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {"raw": body}
+            # optionally delete result object: s3.delete_object(...)
+            return jsonify({"uid": uid, "result": data}), 200
+        time.sleep(poll_interval)
+        poll_interval = min(poll_interval * 1.5, 5.0)
+
+# If timeout, return 202 (accepted) with uid so client can poll later
+	return jsonify({"uid": uid, "status": "pending", "message": "Result not ready (timeout)"}), 202
+
+@app.route("/result/<uid>", methods=["GET"])
+def get_result(uid):
     
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in read_image_file: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    # API for client to poll for processing result using UID.
 
+    result_key = f"{RESULT_S3_PREFIX}{uid}.json"
+    
+    if not s3_object_exists(S3_BUCKET, result_key):
+        return jsonify({"uid": uid, "status": "pending", "message": "Result not yet available"}), 202
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "service": "Hybrid Cloud Image Recognition API",
-        "version": "1.0.0"
-    }
-
-
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "name": "Hybrid Cloud Image Recognition API",
-        "version": "1.0.0",
-        "description": "FastAPI replacement for Flask appTier.py",
-        "endpoints": {
-            "upload": "POST /",
-            "health": "GET /health",
-            "docs": "/docs"
-        }
-    }
-
+    try:
+        res_obj = s3.get_object(Bucket=S3_BUCKET, Key=result_key)
+        body = res_obj['Body'].read().decode('utf-8')
+        
+        try:
+            data = json.loads(body)
+        except Exception:
+            # If not valid JSON, return raw content
+            data = {"raw_result": body}
+            
+        # Optional: Delete result object after retrieval
+        # s3.delete_object(Bucket=S3_BUCKET, Key=result_key)
+        
+        return jsonify({"uid": uid, "status": "completed", "result": data}), 200
+        
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchKey':
+            return jsonify({"uid": uid, "status": "pending", "message": "Result not yet available"}), 202
+        app.logger.exception(f"S3 error retrieving result for UID {uid}")
+        return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
-    import uvicorn
-    
-    host = os.getenv('HOST', '0.0.0.0')
-    port = int(os.getenv('PORT', 8000))
-    
-    uvicorn.run(
-        "main:app",
-        host=host,
-        port=port,
-        reload=True
-    )
+    app.run(host="0.0.0.0", port=5000)
