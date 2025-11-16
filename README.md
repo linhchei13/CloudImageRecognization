@@ -4,7 +4,7 @@
 
 ## 2.  Chạy hệ thống (Test tại Local)
 
-Bạn cần mở **3 cửa sổ Terminal** (hoặc 3 tab PowerShell). Cả 3 đều phải ở trong thư mục `backend` và đã kích hoạt `.venv`.
+Bạn cần mở **3 cửa sổ Terminal** (hoặc 3 tab PowerShell). Cả 3 đều phải ở trong thư mục `backend`.
 
 ###  Terminal 1: Chạy App Server (API)
 
