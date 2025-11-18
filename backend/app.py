@@ -52,7 +52,6 @@ def home():
 @app.route("/predict", methods=["POST"])
 def submit_image():
     if 'image_file' not in request.files:
-        # Thay vì trả JSON, render lại trang với thông báo lỗi
         return render_template("index.html", error="Không có file nào được cung cấp")
 
     upload_file = request.files['image_file']
