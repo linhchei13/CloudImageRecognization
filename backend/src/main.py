@@ -13,6 +13,7 @@ import os
 from .aws import get_labels
 from botocore.exceptions import NoCredentialsError, ClientError
 from fastapi.responses import Response
+from swiftclient.client import Connection as SwiftConnection
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
@@ -39,7 +40,6 @@ SWIFT_CONTAINER = os.getenv('SWIFT_CONTAINER')
 swift_client = None
 try:
     if SWIFT_AUTH_URL and SWIFT_USER and SWIFT_KEY:
-        from swiftclient.client import Connection as SwiftConnection
         swift_client = SwiftConnection(authurl=SWIFT_AUTH_URL, user=SWIFT_USER, key=SWIFT_KEY, tenant_name=SWIFT_TENANT, auth_version='2')
 except Exception:
     swift_client = None
@@ -95,7 +95,8 @@ async def upload(
             db.commit()
         except Exception as e:
             print(f"Warning: failed to save to Swift: {e}")
-
+    else :
+        print("Swift client not configured; skipping upload to Swift.")
     return {"filename": file.filename, "labels": labels}
 
 
@@ -136,7 +137,8 @@ def get_image(image_id: int, user = Depends(get_current_user), db: Session = Dep
         except Exception as e:
             print(f"Warning: failed to fetch image from Swift: {e}")
             raise HTTPException(status_code=502, detail='failed to fetch image')
-
+    else:   
+        print("Swift client not configured or no swift_path; cannot fetch image.")
     # Fallback: no swift object
     raise HTTPException(status_code=404, detail='image not available')
 
