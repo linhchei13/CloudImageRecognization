@@ -6,6 +6,7 @@ python-multipart
 python-dotenv==1.0.1
 requests==2.32.3
 python-swiftclient==4.1.0
+python-keystoneclient
 PyJWT==2.7.0
 python-jose[cryptography]==3.3.0
 sqlalchemy==2.0.22

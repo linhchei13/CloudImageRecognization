@@ -14,6 +14,8 @@ from .aws import get_labels
 from botocore.exceptions import NoCredentialsError, ClientError
 from fastapi.responses import Response
 from swiftclient.client import Connection as SwiftConnection
+from jose import jwt as jose_jwt
+from .auth import SECRET
 from dotenv import load_dotenv
 load_dotenv()
 Base.metadata.create_all(bind=engine)
@@ -117,24 +119,51 @@ def dashboard(request: Request):
 
 @app.get("/api/images")
 def list_images(
+    request: Request,
     user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # include token as query param so browser <img> can fetch the proxied image
+    auth_header = request.headers.get('authorization') or ''
+    token = None
+    if auth_header.lower().startswith('bearer '):
+        token = auth_header.split(None, 1)[1]
+
     images = db.query(Image).filter(Image.owner_id == user.id).all()
     return [
         {
             "id": img.id,
             "filename": img.filename,
             "labels": img.labels.split(","),
-            "image_url": f"/api/images/{img.id}/image"
+            "image_url": f"/api/images/{img.id}/image" + (f"?token={token}" if token else "")
         }
         for img in images
     ]
 
 
 @app.get("/api/images/{image_id}/image")
-def get_image(image_id: int, user = Depends(get_current_user), db: Session = Depends(get_db)):
-    img = db.query(Image).filter(Image.id == image_id, Image.owner_id == user.id).first()
+def get_image(image_id: int, request: Request, db: Session = Depends(get_db)):
+    # Accept token either via Authorization header or query param `token`
+    token = None
+    auth_header = request.headers.get('authorization')
+    if auth_header and auth_header.lower().startswith('bearer '):
+        token = auth_header.split(None, 1)[1]
+    else:
+        token = request.query_params.get('token')
+
+    if not token:
+        raise HTTPException(status_code=401, detail='Missing token')
+
+    try:
+        payload = jose_jwt.decode(token, SECRET, algorithms=["HS256"])
+    except Exception:
+        raise HTTPException(status_code=401, detail='Invalid token')
+
+    user_id = payload.get('id')
+    if not user_id:
+        raise HTTPException(status_code=401, detail='Invalid token payload')
+
+    img = db.query(Image).filter(Image.id == image_id, Image.owner_id == user_id).first()
     if not img:
         raise HTTPException(status_code=404, detail='not found')
 
