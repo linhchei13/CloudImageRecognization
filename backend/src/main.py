@@ -42,6 +42,7 @@ try:
     if SWIFT_AUTH_URL and SWIFT_USER and SWIFT_KEY:
         swift_client = SwiftConnection(authurl=SWIFT_AUTH_URL, user=SWIFT_USER, key=SWIFT_KEY, tenant_name=SWIFT_TENANT, auth_version='2')
 except Exception:
+    print("Warning: failed to initialize Swift client; continuing without Swift support.")
     swift_client = None
 @app.post("/api/signup")
 def signup(username: str, password: str, db: Session = Depends(get_db)):
