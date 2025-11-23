@@ -40,7 +40,9 @@ SWIFT_CONTAINER = os.getenv('SWIFT_CONTAINER')
 swift_client = None
 try:
     if SWIFT_AUTH_URL and SWIFT_USER and SWIFT_KEY:
-        swift_client = SwiftConnection(authurl=SWIFT_AUTH_URL, user=SWIFT_USER, key=SWIFT_KEY, tenant_name=SWIFT_TENANT, auth_version='2')
+       swift_client = SwiftConnection(authurl=SWIFT_AUTH_URL, user=SWIFT_USER, key=SWIFT_KEY, tenant_name=SWIFT_TENANT, auth_version='2')
+    else:
+        print("Swift configuration not fully provided; skipping Swift client initialization.")
 except Exception:
     print("Warning: failed to initialize Swift client; continuing without Swift support.")
     swift_client = None
@@ -64,6 +66,7 @@ async def upload(
     db: Session = Depends(get_db)
 ):
     # read file bytes
+    print("Swift client initialized." if swift_client else "Swift client not configured.")
     try:
         content = await file.read()
     except Exception:
