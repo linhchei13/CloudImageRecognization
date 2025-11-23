@@ -45,7 +45,7 @@ print("KEY =", os.getenv("SWIFT_KEY"))
 print("TENANT =", os.getenv("SWIFT_TENANT"))
 try:
     if SWIFT_AUTH_URL and SWIFT_USER and SWIFT_KEY:
-       swift_client = SwiftConnection(authurl=SWIFT_AUTH_URL, user=SWIFT_USER, key=SWIFT_KEY, tenant_name=SWIFT_TENANT, auth_version='2')
+       swift_client = SwiftConnection(authurl=SWIFT_AUTH_URL, user=SWIFT_USER, key=SWIFT_KEY, tenant_name=SWIFT_TENANT, auth_version='1')
     else:
         print("Swift configuration not fully provided; skipping Swift client initialization.")
 except Exception:
