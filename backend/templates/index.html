@@ -185,7 +185,16 @@
         <div class="col-lg-5">
             <div class="card shadow-sm h-100">
                 <div class="card-body p-4 p-md-4 d-flex flex-column">
-                    <h5 class="mb-3">Kết quả phân loại</h5>
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h5 class="mb-0">Kết quả phân loại</h5>
+                        <form class="d-flex" action="/predict" method="get">
+                            <input name="request_id" id="check-request-id" value="{{ request_id|default('') }}" class="form-control form-control-sm me-2" placeholder="Nhập request_id" />
+                            <button class="btn btn-sm btn-outline-primary me-2" type="submit">Check</button>
+                            {% if request_id %}
+                                <button id="btn-copy-id" class="btn btn-sm btn-outline-secondary" type="button">Copy ID</button>
+                            {% endif %}
+                        </form>
+                    </div>
 
                     {% if prediction %}
                         <div class="alert alert-success mb-3">
@@ -306,6 +315,19 @@
         }
         spinnerOverlay.style.display = 'flex';
     });
+
+    // Copy request id button behavior
+    const btnCopy = document.getElementById('btn-copy-id');
+    if (btnCopy) {
+        btnCopy.addEventListener('click', function () {
+            const el = document.getElementById('check-request-id');
+            if (!el) return;
+            el.select();
+            document.execCommand('copy');
+            btnCopy.textContent = 'Copied';
+            setTimeout(() => btnCopy.textContent = 'Copy ID', 1500);
+        });
+    }
 </script>
 
 </body>
