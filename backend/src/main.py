@@ -45,7 +45,7 @@ print("KEY =", os.getenv("SWIFT_KEY"))
 print("TENANT =", os.getenv("SWIFT_TENANT"))
 try:
     if SWIFT_AUTH_URL and SWIFT_USER and SWIFT_KEY:
-       swift_client = SwiftConnection(authurl=SWIFT_AUTH_URL, user=SWIFT_USER, key=SWIFT_KEY, tenant_name=SWIFT_TENANT, auth_version='1')
+       swift_client = SwiftConnection(authurl=SWIFT_AUTH_URL, user=SWIFT_USER, key=SWIFT_KEY, tenant_name=SWIFT_TENANT, auth_version='3')
     else:
         print("Swift configuration not fully provided; skipping Swift client initialization.")
 except Exception:
@@ -96,8 +96,9 @@ async def upload(
     # upload bytes to Swift under per-user path and save swift_path
     if swift_client and SWIFT_CONTAINER:
         try:
-            username = getattr(user, 'username', None) or f"user_{user.id}"
-            obj_name = f"users/{username}/images/{img.id}_{file.filename}"
+            # store under numeric user id to avoid username collisions/changes
+            user_id_prefix = f"users/{user.id}"
+            obj_name = f"{user_id_prefix}/images/{img.id}_{file.filename}"
             swift_client.put_object(SWIFT_CONTAINER, obj_name, contents=content, content_type=getattr(file, 'content_type', 'application/octet-stream'))
             img.swift_path = obj_name
             db.add(img)

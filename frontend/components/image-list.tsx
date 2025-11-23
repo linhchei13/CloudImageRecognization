@@ -8,6 +8,7 @@ interface Image {
   id: number
   filename: string
   labels: string[]
+  image_url?: string
 }
 
 interface ImageListProps {
@@ -39,14 +40,21 @@ export default function ImageList({ images, onDelete }: ImageListProps) {
         .app-theme-whiteblue .text-primary{ color: var(--primary) !important; }
         .app-theme-whiteblue .text-destructive{ color: #ef4444 !important; }
       `}</style>
-      {images.map((image) => (
+      {images.map((image) => {
+        const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/api$/, '')
+        const src = image.image_url && !image.image_url.startsWith('http') ? `${apiBase}${image.image_url}` : image.image_url
+        return (
         <div
           key={image.id}
           className="p-4 rounded-lg bg-background/50 border border-border/50 hover:border-border/80 transition-colors"
         >
           <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <h4 className="font-medium text-foreground truncate">{image.filename}</h4>
+            <div className="flex-1 min-w-0 flex items-center gap-3">
+              {src ? (
+                <img src={src} alt={image.filename} className="w-20 h-20 object-cover rounded-md" />
+              ) : null}
+              <div>
+                <h4 className="font-medium text-foreground truncate">{image.filename}</h4>
               {image.labels && image.labels.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {image.labels.map((label, idx) => (
@@ -61,6 +69,7 @@ export default function ImageList({ images, onDelete }: ImageListProps) {
               ) : (
                 <p className="text-xs text-muted-foreground mt-1">No labels detected</p>
               )}
+              </div>
             </div>
             <Button
               variant="ghost"
@@ -73,7 +82,7 @@ export default function ImageList({ images, onDelete }: ImageListProps) {
             </Button>
           </div>
         </div>
-      ))}
+      )})}
     </div>
   )
 }
