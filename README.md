@@ -1,6 +1,8 @@
-Backend README — CloudImageRecognization
-
-This repo runs a FastAPI backend that can serve a server-rendered template (`templates/index.html`) and also exposes JSON endpoints (`/upload`, `/result/{id}`).
+Clone repository
+```powershell
+git clone https://github.com/linhchei13/CloudReco.git
+```
+**Backend:**
 
 Quick run (local Python virtualenv)
 
@@ -36,3 +38,13 @@ uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 4) Visit:
 
 - Server-rendered UI: http://localhost:8000/
+
+**Frontend:**
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Visit: http://localhost:3000/
