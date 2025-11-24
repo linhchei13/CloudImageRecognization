@@ -10,6 +10,7 @@ from .auth import (
     get_current_user, create_token
 )
 import os
+from datetime import datetime, timezone
 from .aws import get_labels
 from botocore.exceptions import NoCredentialsError, ClientError
 from fastapi.responses import Response
@@ -90,7 +91,8 @@ async def upload(
     img = Image(
         filename=file.filename,
         labels=",".join(labels),
-        owner_id=user.id
+        owner_id=user.id,
+        created_at=datetime.now(timezone.utc)
     )
     db.add(img)
     db.commit()
